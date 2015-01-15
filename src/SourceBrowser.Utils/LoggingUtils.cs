@@ -41,7 +41,6 @@ namespace SourceBrowser.Utils
         {
             string requestId = RequestUtils.GetRequestId().ToString();
             Trace.WriteLine(String.Format("[{0}, {1}] at {2}:{3} ({4}); {5} \n {6}", DateTime.UtcNow, requestId, sourceFilePath, sourceLineNumber, memberName, message, exception.ToString()), CATEGORY_ERROR);
-            System.Web.HttpContext.Current.Trace.Write(String.Format("xxx [{0}, {1}] at {2}:{3} ({4}); {5} \n {6}", DateTime.UtcNow, requestId, sourceFilePath, sourceLineNumber, memberName, message, exception.ToString()), CATEGORY_ERROR);
         }
 
         /// <summary>
@@ -74,7 +73,6 @@ namespace SourceBrowser.Utils
         {
             string requestId = RequestUtils.GetRequestId().ToString();
             Trace.WriteLine(String.Format("[{0}, {1}] at {2}:{3} ({4}); {5}", DateTime.UtcNow, requestId, sourceFilePath, sourceLineNumber, memberName, message), CATEGORY_INFO);
-            System.Web.HttpContext.Current.Trace.Write(String.Format("xxx [{0}, {1}] at {2}:{3} ({4}); {5}", DateTime.UtcNow, requestId, sourceFilePath, sourceLineNumber, memberName, message), CATEGORY_INFO);
         }
     }
 }
