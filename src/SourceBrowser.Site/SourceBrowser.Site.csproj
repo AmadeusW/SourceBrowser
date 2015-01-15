@@ -525,6 +525,10 @@
       <Project>{f90b7983-d137-4c89-b668-a6082be39303}</Project>
       <Name>SourceBrowser.SolutionRetriever</Name>
     </ProjectReference>
+    <ProjectReference Include="..\SourceBrowser.Utils\SourceBrowser.Utils.csproj">
+      <Project>{282aeca1-feb1-49d1-8a99-bea4d74a86c1}</Project>
+      <Name>SourceBrowser.Utils</Name>
+    </ProjectReference>
   </ItemGroup>
   <PropertyGroup>
     <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
