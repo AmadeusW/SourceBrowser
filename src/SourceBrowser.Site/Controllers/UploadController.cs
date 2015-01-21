@@ -7,6 +7,7 @@
     using SourceBrowser.Site.Repositories;
     using System;
     using SourceBrowser.Utils;
+    using System.Linq;
 
     public class UploadController : Controller
     {
@@ -32,71 +33,104 @@
                 return View("Index");
             }
 
-            LoggingUtils.Info("Begin downloading " + githubUrl);
-            string repoRootPath = string.Empty;
+            // Check if this repo already exists
+            if (!BrowserRepository.TryLockRepository(retriever.UserName, retriever.RepoName))
+            {
+	            // Repo exists. Redirect the user to that repository.
+	            return Redirect("/Browse/" + retriever.UserName + "/" + retriever.RepoName);
+            }
+
+            // We have locked the repository and marked it as processing.
+            // Whenever we return or exit on an exception, we need to unlock this repository
+            bool processingSuccessful = false;
             try
             {
-                repoRootPath = retriever.RetrieveProject();
-            }
-            catch (Exception ex)
-            {
-                LoggingUtils.Error("Error downloading repository: " + ex.ToString());
-                ViewBag.Error = "There was an error downloading this repository.";
-                return View("Index");
-            }
-
-            // Generate the source browser files for this solution
-            var solutionPaths = GetSolutionPaths(repoRootPath);
-            if (solutionPaths.Length == 0)
-            {
-                LoggingUtils.Warning("No solution was found in " + repoRootPath);
-                ViewBag.Error = "No C# solution was found. Ensure that a valid .sln file exists within your repository.";
-                return View("Index");
-            }
-
-            var organizationPath = System.Web.Hosting.HostingEnvironment.MapPath("~/") + "SB_Files\\" + retriever.UserName;
-            var repoPath = Path.Combine(organizationPath, retriever.RepoName);
-
-            // TODO: Use parallel for.
-            foreach (var solutionPath in solutionPaths)
-            {
-                LoggingUtils.Info("Begin processing solution " + solutionPath);
-                Generator.Model.WorkspaceModel workspaceModel;
+                string repoRootPath = string.Empty;
                 try
                 {
-                    workspaceModel = UploadRepository.ProcessSolution(solutionPath, repoRootPath);
+                    LoggingUtils.Info("Begin downloading " + githubUrl);
+                    repoRootPath = retriever.RetrieveProject();
                 }
                 catch (Exception ex)
                 {
-                    LoggingUtils.Error("Error processing solution", ex);
-                    ViewBag.Error = "There was an error processing solution " + Path.GetFileName(solutionPath);
+                    LoggingUtils.Error("Error downloading repository: " + ex.ToString());
+                    ViewBag.Error = "There was an error downloading this repository.";
                     return View("Index");
                 }
 
-                //One pass to lookup all declarations
-                LoggingUtils.Info("Invoking TokenLookupTransformer");
-                var typeTransformer = new TokenLookupTransformer();
-                typeTransformer.Visit(workspaceModel);
-                var tokenLookup = typeTransformer.TokenLookup;
+                // Generate the source browser files for this solution
+                var solutionPaths = GetSolutionPaths(repoRootPath);
+                if (solutionPaths.Length == 0)
+                {
+                    LoggingUtils.Warning("No solution was found in " + repoRootPath);
+                    ViewBag.Error = "No C# solution was found. Ensure that a valid .sln file exists within your repository.";
+                    return View("Index");
+                }
 
-                //Another pass to generate HTMLs
-                LoggingUtils.Info("Invoking HtmlTransformer");
-                var htmlTransformer = new HtmlTransformer(tokenLookup, repoPath);
-                htmlTransformer.Visit(workspaceModel);
+                var organizationPath = System.Web.Hosting.HostingEnvironment.MapPath("~/") + "SB_Files\\" + retriever.UserName;
+                var repoPath = Path.Combine(organizationPath, retriever.RepoName);
 
-                LoggingUtils.Info("Invoking SearchIndexTransformer");
-                var searchTransformer = new SearchIndexTransformer(retriever.UserName, retriever.RepoName);
-                searchTransformer.Visit(workspaceModel);
+                // TODO: Use parallel for.
+                // TODO: Process all solutions.
+                // For now, we're assuming the shallowest and shortest .sln file is the one we're interested in
+                foreach (var solutionPath in solutionPaths.OrderBy(n => n.Length).Take(1))
+                {
+                    LoggingUtils.Info("Begin processing solution " + solutionPath);
+                    try
+                    {
+                        var workspaceModel = UploadRepository.ProcessSolution(solutionPath, repoRootPath);
 
-                // Generate HTML of the tree view
-                LoggingUtils.Info("Invoking TreeViewTransformer");
-                var treeViewTransformer = new TreeViewTransformer(repoPath, retriever.UserName, retriever.RepoName);
-                treeViewTransformer.Visit(workspaceModel);
+                        //One pass to lookup all declarations
+                        var typeTransformer = new TokenLookupTransformer();
+                        typeTransformer.Visit(workspaceModel);
+                        var tokenLookup = typeTransformer.TokenLookup;
 
-                LoggingUtils.Info("Finished processing solution " + solutionPath);
+                        //Another pass to generate HTMLs
+                        var htmlTransformer = new HtmlTransformer(tokenLookup, repoPath);
+                        htmlTransformer.Visit(workspaceModel);
+
+                        var searchTransformer = new SearchIndexTransformer(retriever.UserName, retriever.RepoName);
+                        searchTransformer.Visit(workspaceModel);
+
+                        // Generate HTML of the tree view
+                        var treeViewTransformer = new TreeViewTransformer(repoPath, retriever.UserName, retriever.RepoName);
+                        treeViewTransformer.Visit(workspaceModel);
+                    }
+                    catch (Exception ex)
+                    {
+                        LoggingUtils.Error("Error processing solution", ex);
+                        ViewBag.Error = "There was an error processing solution " + Path.GetFileName(solutionPath);
+                        return View("Index");
+                    }
+                    LoggingUtils.Info("Finished processing solution " + solutionPath);
+                }
+
+                try
+                {
+                    UploadRepository.SaveReadme(repoPath, retriever.ProvideParsedReadme());
+                }
+                catch (Exception ex)
+                {
+                    LoggingUtils.Error("Error processing readme", ex);
+                    // TODO: Log and swallow - readme is not essential.
+                }
+
+                processingSuccessful = true;
+                return Redirect("/Browse/" + retriever.UserName + "/" + retriever.RepoName);
             }
-
-            return Redirect("/Browse/" + retriever.UserName + "/" + retriever.RepoName);
+            finally
+            {
+                if (processingSuccessful)
+                {
+                    LoggingUtils.Info("Finished processing repo " + retriever.UserName + "/" + retriever.RepoName);
+                    BrowserRepository.UnlockRepository(retriever.UserName, retriever.RepoName);
+                }
+                else
+                {
+                    LoggingUtils.Warning("After unsuccessful processing, removing repo " + retriever.UserName + "/" + retriever.RepoName);
+                    BrowserRepository.RemoveRepository(retriever.UserName, retriever.RepoName);
+                }
+            }
         }
 
         /// <summary>

@@ -2,11 +2,7 @@
     var path = window.location.pathname;
     var splitPath = path.split('/');
     splitPath = splitPath.filter(function (v) { return v !== '' });
-    if (splitPath.length <= 2)
-    {
-        $("#search-form").hide();
-    }
-    else
+    if (splitPath.length > 2)
     {
         //Only bind if the page is searchable. (ie. we're in a repository)
         window.History.Adapter.bind(window, 'statechange', handleStateChange);
@@ -165,13 +161,15 @@ search = {
         var newUrl = splitByHash[0];
         var lineNumber = Number(splitByHash[1]);
 
+        var splitBySlash = newUrl.split('/');
+        var fileName = splitBySlash[splitBySlash.length - 1];
 
         window.History.pushState({ lineNumber: lineNumber }, null, newUrl);
+        document.title = fileName + " | Source Browser";
     }
 }
 
 function handleStateChange(e) {
-    //TODOa
     var state = History.getState();
     var cleanUrl = state.url;
     var data = state.data;
@@ -182,15 +180,12 @@ function handleStateChange(e) {
         url: cleanUrl,
         success: function (args) {
             $("#main-content").html(args["SourceCode"]);
-            scrollToAnchor(lineNumber);
+             var newUrl = cleanUrl + "#" + lineNumber;
+             window.history.replaceState(null, null, newUrl);
+             window.location = newUrl;
         },
         error: handlePageLoadError
     });
-}
-
-function scrollToAnchor(aid) {
-    var aTag = $("a[name='" + aid + "']");
-    $('html,body').animate({ scrollTop: aTag.offset().top }, 'fast');
 }
 
 function handlePageLoadError(args) {
@@ -203,7 +198,7 @@ $("#search-box").keyup(function () {
     search.beginSearch();
 });
 
-$("search-button").click(function () {
+$("#search-button").click(function () {
     search.beginSearch();
 });
 

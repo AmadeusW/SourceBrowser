@@ -23,7 +23,14 @@
             {
                 return this.View("LookupError");
             }
-            var viewModel = BrowserRepository.SetUpUserStructure(username);
+
+            if (!BrowserRepository.PathExists(username))
+            {
+                ViewBag.ErrorMessage = "We haven't seen any repositories of this user.";
+                return this.View("LookupError");
+            }
+
+            var viewModel = BrowserRepository.GetUserStructure(username);
             return this.View("LookupUser", viewModel);
         }
 
@@ -36,13 +43,21 @@
 
             if(!BrowserRepository.PathExists(username, repository))
             {
-                ViewBag.ErrorMessage = "Specified repository could not be found";
+                ViewBag.ErrorMessage = "We haven't seen this repository.";
                 return this.View("LookupError");
             }
 
-            ViewBag.TreeView = loadTreeView(username, repository);
             var viewModel = BrowserRepository.SetUpSolutionStructure(username, repository, "");
-            return View("LookupFolder", "_BrowseLayout", viewModel);
+            if (!BrowserRepository.IsRepositoryReady(username, repository))
+            {
+                return View("AwaitLookup", "_BrowseLayout", viewModel);
+            }
+            else
+            {
+                ViewBag.TreeView = loadTreeView(username, repository);
+                ViewBag.Readme = loadReadme(username, repository);
+                return View("LookupFolder", "_BrowseLayout", viewModel);
+            }
         }
 
         public ActionResult LookupFolder(string username, string repository, string path)
@@ -91,17 +106,29 @@
             return Json(viewModel, JsonRequestBehavior.AllowGet);
         }
 
-        private dynamic loadTreeView(string username, string repository)
+        private string loadTreeView(string username, string repository)
         {
             var organizationPath = System.Web.Hosting.HostingEnvironment.MapPath("~/") + "SB_Files\\";
             string treeViewFileName = "treeview.html";
             var treeViewPath = Path.Combine(organizationPath, username, repository, treeViewFileName);
 
-            var treeViewFile = new StreamReader(treeViewPath);
-            string treeViewString = treeViewFile.ReadToEnd();
-            treeViewFile.Close();
+            using (var treeViewFile = new StreamReader(treeViewPath))
+            {
+                return treeViewFile.ReadToEnd();
+            }
+        }
 
-            return treeViewString;
+        private string loadReadme(string username, string repository)
+        {
+            var organizationPath = System.Web.Hosting.HostingEnvironment.MapPath("~/") + "SB_Files\\";
+            string readmeFileName = "readme.html";
+            var readmePath = Path.Combine(organizationPath, username, repository, readmeFileName);
+
+            if (System.IO.File.Exists(readmePath))
+            {
+                return System.IO.File.ReadAllText(readmePath);
+            }
+            return null;
         }
     }
 }
