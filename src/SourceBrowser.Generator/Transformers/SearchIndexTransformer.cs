@@ -36,6 +36,19 @@ namespace SourceBrowser.Generator.Transformers
 
             SearchIndex.AddDeclarationsToIndex(tokenModels);
 
+
+            // See and understand the purpose of TokenLookupTransformer. Need to get the documentID of the *original definition* of each thing.
+            var usages = documentModel.Tokens.Where(n => n.IsDeclaration && n.IsSearchable);
+
+            var usageTokenModels = from usage in usages
+                                   select new TokenViewModel(
+                                  _username,
+                                  _repository,
+                                  documentId,
+                                  declaration.FullName,
+                                  declaration.LineNumber
+                                  );
+
             base.VisitDocument(documentModel);
         }
     }
