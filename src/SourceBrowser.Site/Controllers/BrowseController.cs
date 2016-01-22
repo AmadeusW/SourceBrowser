@@ -5,6 +5,7 @@
 
     using SourceBrowser.Site.Repositories;
     using System.IO;
+    using SourceBrowser.Site.Attributes;
 
     public class BrowseController : Controller
     {
@@ -22,7 +23,14 @@
             {
                 return this.View("LookupError");
             }
-            var viewModel = BrowserRepository.SetUpUserStructure(username);
+
+            if (!BrowserRepository.PathExists(username))
+            {
+                ViewBag.ErrorMessage = "We haven't seen any repositories of this user.";
+                return this.View("LookupError");
+            }
+
+            var viewModel = BrowserRepository.GetUserStructure(username);
             return this.View("LookupUser", viewModel);
         }
 
@@ -33,9 +41,23 @@
                 return this.View("LookupError");
             }
 
-            ViewBag.TreeView = loadTreeView(username, repository);
+            if(!BrowserRepository.PathExists(username, repository))
+            {
+                ViewBag.ErrorMessage = "We haven't seen this repository.";
+                return this.View("LookupError");
+            }
+
             var viewModel = BrowserRepository.SetUpSolutionStructure(username, repository, "");
-            return View("LookupFolder", viewModel);
+            if (!BrowserRepository.IsRepositoryReady(username, repository))
+            {
+                return View("AwaitLookup", "_BrowseLayout", viewModel);
+            }
+            else
+            {
+                ViewBag.TreeView = loadTreeView(username, repository);
+                ViewBag.Readme = loadReadme(username, repository);
+                return View("LookupFolder", "_BrowseLayout", viewModel);
+            }
         }
 
         public ActionResult LookupFolder(string username, string repository, string path)
@@ -45,41 +67,68 @@
                 return this.View("LookupError");
             }
 
+            if (!BrowserRepository.PathExists(username, repository, path))
+            {
+                ViewBag.ErrorMessage = "Specified folder could not be found";
+                return this.View("LookupError");
+            }
+
             ViewBag.TreeView = loadTreeView(username, repository);
             var viewModel = BrowserRepository.SetUpSolutionStructure(username, repository, path);
-            return View("LookupFolder", viewModel);
+            return View("LookupFolder", "_BrowseLayout", viewModel);
         }
 
         public ActionResult LookupFile(string username, string repository, string path)
         {
-            System.Diagnostics.Debug.Write(username);
-            System.Diagnostics.Debug.Write(repository);
-            System.Diagnostics.Debug.Write(path);
             if (string.IsNullOrEmpty(path))
             {
                 return View("LookupError");
             }
 
-            var metaData = BrowserRepository.GetMetaData(username, repository, path);
-            int numberOfLines = metaData["NumberOfLines"].ToObject<int>();
+            if (!BrowserRepository.FileExists(username, repository, path))
+            {
+                ViewBag.ErrorMessage = "Specified file could not be found";
+                return this.View("LookupError");
+            }
             var rawHtml = BrowserRepository.GetDocumentHtml(username, repository, path);
 
             ViewBag.TreeView = loadTreeView(username, repository);
-            var viewModel = BrowserRepository.SetUpFileStructure(username, repository, path, rawHtml, numberOfLines);
-            return View("LookupFile", viewModel);
+            var viewModel = BrowserRepository.SetUpFileStructure(username, repository, path, rawHtml);
+            return View("LookupFile", "_BrowseLayout", viewModel);
         }
 
-        private dynamic loadTreeView(string username, string repository)
+        public ActionResult LookupFileAjax(string username, string repository, string path)
+        {
+            var rawHtml = BrowserRepository.GetDocumentHtml(username, repository, path);
+
+            ViewBag.TreeView = loadTreeView(username, repository);
+            var viewModel = BrowserRepository.SetUpFileStructure(username, repository, path, rawHtml);
+            return Json(viewModel, JsonRequestBehavior.AllowGet);
+        }
+
+        private string loadTreeView(string username, string repository)
         {
             var organizationPath = System.Web.Hosting.HostingEnvironment.MapPath("~/") + "SB_Files\\";
             string treeViewFileName = "treeview.html";
             var treeViewPath = Path.Combine(organizationPath, username, repository, treeViewFileName);
 
-            var treeViewFile = new StreamReader(treeViewPath);
-            string treeViewString = treeViewFile.ReadToEnd();
-            treeViewFile.Close();
+            using (var treeViewFile = new StreamReader(treeViewPath))
+            {
+                return treeViewFile.ReadToEnd();
+            }
+        }
 
-            return treeViewString;
+        private string loadReadme(string username, string repository)
+        {
+            var organizationPath = System.Web.Hosting.HostingEnvironment.MapPath("~/") + "SB_Files\\";
+            string readmeFileName = "readme.html";
+            var readmePath = Path.Combine(organizationPath, username, repository, readmeFileName);
+
+            if (System.IO.File.Exists(readmePath))
+            {
+                return System.IO.File.ReadAllText(readmePath);
+            }
+            return null;
         }
     }
 }

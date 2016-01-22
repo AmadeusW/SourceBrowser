@@ -7,7 +7,6 @@
     using System.Threading.Tasks;
     using Newtonsoft.Json;
     using Newtonsoft.Json.Linq;
-
     using SourceBrowser.Generator;
     using SourceBrowser.Site.Models;
     using SourceBrowser.Site.Utilities;
@@ -16,6 +15,10 @@
     internal static class BrowserRepository
     {
         private static readonly string StaticHtmlAbsolutePath = System.Web.Hosting.HostingEnvironment.MapPath("~/SB_Files/");
+        /// <summary>
+        /// Lock used for querying repo's status (n/a, processing or ready)
+        /// </summary>
+        private static object fileOperationLock = new object();
 
         // TODO: DO NOT LOAD THIS INTO MEMORY.
         // This string could be really big. We should probably be distributing this
@@ -32,16 +35,82 @@
             }
         }
 
-        internal static JObject GetMetaData(string username, string repository, string path)
+        internal static bool TryLockRepository(string userName, string repoName)
+        {
+	        string lockFileDirectory = Path.Combine(StaticHtmlAbsolutePath, userName, repoName);
+            if (Directory.Exists(lockFileDirectory))
+            {
+                // The directory already exists, we can't modify this repository.
+                return false;
+            }
+            string lockFilePath = Path.Combine(lockFileDirectory, Constants.REPO_LOCK_FILENAME);
+            lock (fileOperationLock)
+            {
+                if (File.Exists(lockFilePath))
+                {
+                    // Looks like someone is already working with this repository.
+                    return false;
+                }
+                else
+                {
+                    // Create a file that indicates that the upload will begin
+                    Directory.CreateDirectory(lockFileDirectory);
+                    // Properly dispose of the filesystem lock
+                    using (var stream = File.Create(lockFilePath))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        internal static void UnlockRepository(string userName, string repoName)
+        {
+	        string lockFilePath = Path.Combine(StaticHtmlAbsolutePath, userName, repoName, Constants.REPO_LOCK_FILENAME);
+            lock (fileOperationLock)
+            {
+                if (File.Exists(lockFilePath))
+                {
+                    File.Delete(lockFilePath);
+                }
+            }
+        }
+
+        internal static bool IsRepositoryReady(string userName, string repoName)
+        {
+            string lockFilePath = Path.Combine(StaticHtmlAbsolutePath, userName, repoName, Constants.REPO_LOCK_FILENAME);
+            lock (fileOperationLock)
+            {
+                if (File.Exists(lockFilePath))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        internal static void RemoveRepository(string userName, string repoName)
+        {
+            string lockFileDirectory = Path.Combine(StaticHtmlAbsolutePath, userName, repoName);
+            lock (fileOperationLock)
+            {
+                if (Directory.Exists(lockFileDirectory))
+                {
+                    Directory.Delete(lockFileDirectory, true);
+                }
+            }
+        }
+
+        internal static bool PathExists(string username, string repository = "", string path = "")
         {
             var fullPath = Path.Combine(StaticHtmlAbsolutePath, username, repository, path);
-            var metadataPath = fullPath + ".json";
+            return Directory.Exists(fullPath);
+        }
 
-            using(var sr = new StreamReader(metadataPath))
-            {
-                var metadata = JObject.Parse(sr.ReadToEnd());
-                return metadata;
-            }
+        internal static bool FileExists(string username, string repository, string path)
+        {
+            var fullPath = Path.Combine(StaticHtmlAbsolutePath, username, repository, path);
+            return File.Exists(fullPath);
         }
 
         /// <summary>
@@ -78,6 +147,7 @@
         internal static GithubUserStructure GetUserStructure(string userName)
         {
             var userDataFile = Path.Combine(StaticHtmlAbsolutePath, userName, "user.data");
+            // Fetch GitHub data if there is none
             if (!File.Exists(userDataFile))
             {
                 var userData = SetUpUserStructure(userName);
@@ -90,7 +160,7 @@
             }
             catch
             {
-                // There was some problem. Recreate the data.
+                // There was some problem reading from the disk. Recreate the data.
                 var userData = SetUpUserStructure(userName);
                 FileUtilities.SerializeData(userData, userDataFile);
                 return userData;
@@ -114,7 +184,7 @@
         /// </summary>
         /// <param name="userName">The username.</param>
         /// <returns>The github structure.</returns>
-        internal static GithubUserStructure SetUpUserStructure(string userName)
+        private static GithubUserStructure SetUpUserStructure(string userName)
         {
             var repoPath = Path.Combine(StaticHtmlAbsolutePath, userName);
 
@@ -156,6 +226,7 @@
         internal static GithubRepoStructure GetRepoStructure(string userName, string repoName)
         {
             var repoDataFile = Path.Combine(StaticHtmlAbsolutePath, userName, repoName, "repo.data");
+            // Fetch GitHub data if there is none
             if (!File.Exists(repoDataFile))
             {
                 var repoData = SetUpRepoStructure(userName, repoName);
@@ -168,7 +239,7 @@
             }
             catch
             {
-                // There was some problem. Recreate the data.
+                // There was some problem reading from the disk. Recreate the data.
                 var repoData = SetUpRepoStructure(userName, repoName);
                 FileUtilities.SerializeData(repoData, repoDataFile);
                 return repoData;
@@ -193,7 +264,7 @@
         /// <param name="userName"></param>
         /// <param name="repoName"></param>
         /// <returns></returns>
-        internal static GithubRepoStructure SetUpRepoStructure(string userName, string repoName)
+        private static GithubRepoStructure SetUpRepoStructure(string userName, string repoName)
         {
             // Currently unused, might be useful at some point
             // var repoRoot = Path.Combine(StaticHtmlAbsolutePath, userName, repoName);
@@ -210,18 +281,18 @@
 
         internal static GithubSolutionStructure SetUpSolutionStructure(string userName, string repoName, string solutionName)
         {
-    var viewModel = new GithubSolutionStructure()
+            var viewModel = new GithubSolutionStructure()
             {
                 Name = solutionName,
                 RelativePath = CreatePath(userName, repoName, solutionName),
                 RelativeRootPath = CreatePath(userName, repoName, solutionName),
-                ParentRepo = SetUpRepoStructure(userName, repoName)
+                ParentRepo = GetRepoStructure(userName, repoName)
             };
 
             return viewModel;
         }
 
-        internal static GithubFileStructure SetUpFileStructure(string userName, string repoName, string path, string html, int numLines)
+        internal static GithubFileStructure SetUpFileStructure(string userName, string repoName, string path, string html) 
         {
             var viewModel = new GithubFileStructure
             {
@@ -230,7 +301,6 @@
                 RelativePath = CreatePath(userName, repoName, GetRelativeDirectory(path)), // Used to expand nodes leading to this file
                 RelativeRootPath = CreatePath(userName, repoName, path), // Points to the root of the treeview
                 SourceCode = html,
-                NumberOfLines = numLines
             };
 
             return viewModel;
@@ -275,9 +345,6 @@
             directories = new List<string>(directoryPaths);
             return directories;
         }
-
-
-                                                                                                                        
 
         private static string CreatePath(string part1, string part2 = null, string part3 = null, string part4 = null)
         {

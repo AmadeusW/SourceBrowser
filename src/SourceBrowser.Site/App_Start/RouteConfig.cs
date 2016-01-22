@@ -36,6 +36,18 @@ namespace SourceBrowser.Site
             }
             );
 
+
+            routes.MapRoute(
+                name: "BrowseFileAjax",
+                url: "browse/{username}/{repository}/{*path}",
+                defaults: new
+                {
+                    controller = "Browse",
+                    action = "LookupFileAjax",
+                }
+                , constraints: new { path = @".*\.cs", test = new Attributes.AjaxOnlyConstraint() }
+            );
+
             routes.MapRoute(
                 name: "BrowseFile",
                 url: "browse/{username}/{repository}/{*path}",
@@ -45,8 +57,9 @@ namespace SourceBrowser.Site
                 action = "LookupFile",
 
             }
-                , constraints: new { path = @".*\.cs" }
+                , constraints: new { path = @".*(\.cs|\.vb)" }
             );
+
 
             routes.MapRoute(
                 name: "BrowseFolder",

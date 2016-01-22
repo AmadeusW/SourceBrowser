@@ -15,6 +15,7 @@ using Newtonsoft.Json;
 using System.Reflection;
 using SourceBrowser.Generator.Extensions;
 using SourceBrowser.Generator.Model;
+using SourceBrowser.Generator.DocumentWalkers;
 
 namespace SourceBrowser.Generator
 {
@@ -61,11 +62,10 @@ namespace SourceBrowser.Generator
             }
         }
 
-        public WorkspaceModel BuildWorkspaceModel(string rootPath)
+        public WorkspaceModel BuildWorkspaceModel(string repositoryRootPath)
         {
-            var containingPath = Directory.GetParent(_solution.FilePath).FullName;
             var solutionName = Path.GetFileName(_solution.FilePath);
-            WorkspaceModel workspaceModel = new WorkspaceModel(solutionName, rootPath);
+            WorkspaceModel workspaceModel = new WorkspaceModel(solutionName, repositoryRootPath);
             //Build document model for every file.
             foreach (var doc in _solution.Projects.SelectMany(n => n.Documents))
             {
@@ -79,11 +79,13 @@ namespace SourceBrowser.Generator
         {
             var syntaxRoot = document.GetSyntaxRootAsync().Result;
             var containingFolder = findDocumentParent(workspaceModel, document);
-            var docWalker = new DocumentWalker(containingFolder, document, _refsourceLinkProvider);
+            if (containingFolder == null)
+                return;
+            var docWalker = WalkerSelector.GetWalker(containingFolder, document, _refsourceLinkProvider);
             docWalker.Visit(syntaxRoot);
             
             //Save it
-            var documentModel = docWalker.DocumentModel;
+            var documentModel = docWalker.GetDocumentModel();
             containingFolder.Children.Add(documentModel);
         }
 
@@ -92,8 +94,10 @@ namespace SourceBrowser.Generator
             IProjectItem currentNode = workspaceModel;
             var rootPath = workspaceModel.BasePath ;
             var docPath = Directory.GetParent(document.FilePath).FullName;
+            
+            //If we can't find it, it's not located within our repo and we'll ignore it.
             if (!docPath.StartsWith(rootPath))
-                return currentNode;
+                return null;
 
             var relativePath = docPath.Remove(0, rootPath.Length);
 

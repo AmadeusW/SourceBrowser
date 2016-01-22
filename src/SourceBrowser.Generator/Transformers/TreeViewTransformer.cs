@@ -23,6 +23,8 @@ namespace SourceBrowser.Generator.Transformers
         public TreeViewTransformer(string savePath, string userName, string repoName)
         {
             _savePath = Path.Combine(savePath, _treeViewOutputFile);
+            Directory.CreateDirectory(Directory.GetParent(_savePath).FullName);
+
             if (String.IsNullOrEmpty(userName) || String.IsNullOrEmpty(repoName))
             {
                 throw new ArgumentNullException("TreeViewTransformer needs to be provided the user name and the repo name.");
@@ -59,6 +61,7 @@ namespace SourceBrowser.Generator.Transformers
             //NOTE: We need to correct the backslashes to forward slashes... Thanks Windows...
             var urlStylePath = folderModel.RelativePath.Replace('\\','/');
             _writer.AddAttribute(HtmlTextWriterAttribute.Id, urlStylePath);
+            _writer.AddAttribute(HtmlTextWriterAttribute.Title, HttpUtility.HtmlEncode(folderModel.Name)); // Tooltip
             _writer.RenderBeginTag(HtmlTextWriterTag.Li);
 
             // Folder item is not a link. It is merely used to hide/show the underlying UL tag
@@ -96,6 +99,7 @@ namespace SourceBrowser.Generator.Transformers
         protected override void VisitDocument(DocumentModel documentModel)
         {
             _writer.AddAttribute(HtmlTextWriterAttribute.Class, "node collapsed");
+            _writer.AddAttribute(HtmlTextWriterAttribute.Title, HttpUtility.HtmlEncode(documentModel.Name)); // Tooltip
             _writer.RenderBeginTag(HtmlTextWriterTag.Li);
 
             //NOTE: We need to correct the backslashes to forward slashes... Thanks Windows...
